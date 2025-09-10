@@ -227,12 +227,12 @@ jobs:
           passphrase: ${{ secrets.SSH_PASSPHRASE }}
           script: |
             cat > taski/.env << 'EOF'
-            DB_ENGINE=django.db.backends.postgresql
-            DB_NAME=your_db_name
-            DB_USER=django_user
-            DB_PASSWORD=mysecretpassword
+            POSTGRES_DB=django
+            POSTGRES_USER=django_user
+            POSTGRES_PASSWORD=mysecretpassword
             DB_HOST=db
             DB_PORT=5432
+            POSTGRES_HOST_AUTH_METHOD=trust
             EOF
             echo "✅ .env file created successfully!"
 
