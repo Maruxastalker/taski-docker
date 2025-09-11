@@ -41,6 +41,7 @@ jobs:
         python -m flake8 backend/
         cd backend/
         python manage.py test
+
   build_and_push_to_docker_hub:
     name: Push Docker image to DockerHub
     runs-on: ubuntu-latest
@@ -61,6 +62,7 @@ jobs:
           context: ./backend/
           push: true
           tags: ${{ secrets.DOCKER_USERNAME }}/taski_backend:latest
+
   frontend_tests:
     runs-on: ubuntu-latest
     steps:
@@ -77,6 +79,7 @@ jobs:
       run: |
         cd frontend/
         npm run test
+
   build_frontend_and_push_to_docker_hub:
     name: Push frontend Docker image to DockerHub
     runs-on: ubuntu-latest
@@ -97,6 +100,7 @@ jobs:
           context: ./frontend/
           push: true
           tags: ${{ secrets.DOCKER_USERNAME }}/taski_frontend:latest
+
   build_gateway_and_push_to_docker_hub:
     name: Push gateway Docker image to DockerHub
     runs-on: ubuntu-latest
@@ -116,6 +120,7 @@ jobs:
           context: ./gateway/
           push: true
           tags: ${{ secrets.DOCKER_USERNAME }}/taski_gateway:latest
+
   deploy:
     runs-on: ubuntu-latest
     needs: 
@@ -126,81 +131,16 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v3
 
-      - name: Test SSH connection
-        uses: appleboy/ssh-action@master
+      # Копируем только docker-compose.production.yml на сервер
+      - name: Copy docker-compose.yml via ssh
+        uses: appleboy/scp-action@master
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USER }}
           key: ${{ secrets.SSH_KEY }}
           passphrase: ${{ secrets.SSH_PASSPHRASE }}
-          script: |
-            echo "✅ SSH connection successful!"
-            mkdir -p taski
-            ls -la
-
-      - name: Create docker-compose file on server via SSH
-        uses: appleboy/ssh-action@master
-        with:
-          host: ${{ secrets.HOST }}
-          username: ${{ secrets.USER }}
-          key: ${{ secrets.SSH_KEY }}
-          passphrase: ${{ secrets.SSH_PASSPHRASE }}
-          script: |
-            cat > taski/docker-compose.production.yml << 'EOF'
-            version: '3'
-
-            volumes:
-              pg_data:
-              static:
-
-            services:
-              db:
-                image: postgres:13
-                env_file: .env
-                volumes:
-                  - pg_data:/var/lib/postgresql/data
-                
-              backend:
-                image: ${{ secrets.DOCKER_USERNAME }}/taski_backend:latest
-                env_file: .env
-                volumes:
-                  - static:/app/collected_static
-                command: >
-                  sh -c "python manage.py migrate &&
-                        gunicorn --bind 0.0.0.0:8000 backend.wsgi:application"
-                
-              frontend:
-                image: ${{ secrets.DOCKER_USERNAME }}/taski_frontend:latest
-                env_file: .env
-                volumes:
-                  - static:/static
-                
-              gateway:
-                image: ${{ secrets.DOCKER_USERNAME }}/taski_gateway:latest
-                volumes:
-                  - static:/staticfiles
-                ports:
-                  - 8000:80
-            EOF
-            echo "✅ docker-compose.production.yml created successfully!"
-
-      - name: Create .env file on server
-        uses: appleboy/ssh-action@master
-        with:
-          host: ${{ secrets.HOST }}
-          username: ${{ secrets.USER }}
-          key: ${{ secrets.SSH_KEY }}
-          passphrase: ${{ secrets.SSH_PASSPHRASE }}
-          script: |
-            cat > taski/.env << 'EOF'
-            POSTGRES_DB=django
-            POSTGRES_USER=django_user
-            POSTGRES_PASSWORD=mysecretpassword
-            DB_HOST=db
-            DB_PORT=5432
-            POSTGRES_HOST_AUTH_METHOD=trust
-            EOF
-            echo "✅ .env file created successfully!"
+          source: "docker-compose.production.yml"
+          target: "taski/"
 
       - name: Deploy application
         uses: appleboy/ssh-action@master
@@ -215,8 +155,6 @@ jobs:
             sudo docker compose -f docker-compose.production.yml pull
             echo "Stopping existing containers..."
             sudo docker compose -f docker-compose.production.yml down
-            echo "Removing old volumes..."
-            sudo docker volume prune -f
             echo "Starting new containers..."
             sudo docker compose -f docker-compose.production.yml up -d
             echo "Waiting for backend to start..."
@@ -225,6 +163,4 @@ jobs:
             sudo docker compose -f docker-compose.production.yml exec backend python manage.py migrate --no-input
             echo "Collecting static files..."
             sudo docker compose -f docker-compose.production.yml exec backend python manage.py collectstatic --no-input
-            echo "Restarting backend to apply changes..."
-            sudo docker compose -f docker-compose.production.yml restart backend
             echo "✅ Deployment completed successfully!"
